@@ -1,0 +1,26 @@
+{
+  "tenant": "north",
+  "deliveries": [
+    {
+      "delivery_id": "s1",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 4,
+      "status": "open"
+    },
+    {
+      "delivery_id": "s2",
+      "tenant": "north",
+      "finding_id": "f2",
+      "version": 1,
+      "status": "open"
+    },
+    {
+      "delivery_id": "s3",
+      "tenant": "north",
+      "finding_id": "f2",
+      "version": 2,
+      "status": "resolved"
+    }
+  ]
+}

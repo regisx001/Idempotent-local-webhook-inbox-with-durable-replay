@@ -1,0 +1,68 @@
+{
+  "tenant": "north",
+  "deliveries": [
+    {
+      "delivery_id": "d1",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 2,
+      "status": "open"
+    },
+    {
+      "delivery_id": "d1",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 2,
+      "status": "open"
+    },
+    {
+      "delivery_id": "d1",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 2,
+      "status": "resolved"
+    },
+    {
+      "delivery_id": "d2",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 1,
+      "status": "resolved"
+    },
+    {
+      "delivery_id": "d3",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 3,
+      "status": "resolved"
+    },
+    {
+      "delivery_id": "d4",
+      "tenant": "south",
+      "finding_id": "f9",
+      "version": 1,
+      "status": "open"
+    },
+    {
+      "delivery_id": "d5",
+      "tenant": "north",
+      "finding_id": "f2",
+      "version": 0,
+      "status": "open"
+    },
+    {
+      "delivery_id": "d6",
+      "tenant": "north",
+      "finding_id": "f2",
+      "version": 1,
+      "status": "open"
+    },
+    {
+      "delivery_id": "d7",
+      "tenant": "north",
+      "finding_id": "f1",
+      "version": 3,
+      "status": "open"
+    }
+  ]
+}
