@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -27,11 +30,66 @@ class StarterTests(unittest.TestCase):
         self.assertIn("error:", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
-    def testCli_whenFeatureUnimplemented_returnsExplicitPlaceholder(self) -> None:
-        result = _run_cli("--input", "inputs/primary.json")
-        self.assertEqual(result.returncode, 3)
-        self.assertIn("STARTER: implement", result.stderr)
-        self.assertEqual(result.stdout, "")
+    def testCli_whenPrimaryRun_producesDocumentedCounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["counts"], {
+                "applied": 3,
+                "duplicate": 1,
+                "redundant": 0,
+                "rejected": 4,
+                "stale": 1,
+            })
+            self.assertTrue(state_file.exists())
+
+    def testCli_whenPrimaryReplayed_producesDocumentedReplayCounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            # First run
+            _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            # Second run (replay)
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["counts"], {
+                "applied": 0,
+                "duplicate": 6,
+                "redundant": 0,
+                "rejected": 3,
+                "stale": 0,
+            })
+
+    def testCli_whenSecondaryRunOnPrimaryState_producesDocumentedCounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            result = _run_cli("--input", "inputs/secondary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["counts"], {
+                "applied": 2,
+                "duplicate": 0,
+                "redundant": 1,
+                "rejected": 0,
+                "stale": 0,
+            })
+            self.assertEqual(data["findings"]["f1"], {"version": 4, "status": "open"})
+            self.assertEqual(data["findings"]["f2"], {"version": 2, "status": "resolved"})
+
+    def testCli_whenStateMalformed_exitsTwoAndPreservesBytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "corrupt_state.json"
+            corrupt_bytes = b"{\n  \"tenant\": \"north\",\n  \"deliveries\": TRUNCATED"
+            state_file.write_bytes(corrupt_bytes)
+
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error:", result.stderr)
+            # Verify the exact bytes were not overwritten
+            self.assertEqual(state_file.read_bytes(), corrupt_bytes)
 
 
 from app import validate_delivery_row, validate_top_level_payload
