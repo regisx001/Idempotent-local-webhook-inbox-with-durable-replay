@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1080 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="problem-flow-title problem-flow-desc">
+        <title id="problem-flow-title">Webhook Redelivery &amp; State Corruption Timeline</title>
+        <desc id="problem-flow-desc">Sequence diagram illustrating network timeouts triggering duplicate webhook retries, out-of-order stale versions overwriting newer data, and version conflict hazards on a naive consumer.</desc>
+        <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+          <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1" fill="rgba(10,37,64,0.08)"/>
+          </pattern>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#425466"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#635bff"/>
+          </marker>
+          <marker id="arrow-danger" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#df1b41"/>
+          </marker>
+        </defs>
+
+        <!-- Canvas Background -->
+        <rect width="100%" height="100%" fill="#f6f9fc"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.7"/>
+
+        <!-- ================= LIFELINES ================= -->
+        <line x1="220" y1="88" x2="220" y2="600" stroke="#425466" stroke-width="1" stroke-dasharray="4,4"/>
+        <line x1="540" y1="88" x2="540" y2="600" stroke="#425466" stroke-width="1" stroke-dasharray="4,4"/>
+        <line x1="860" y1="88" x2="860" y2="600" stroke="#425466" stroke-width="1" stroke-dasharray="4,4"/>
+
+        <!-- Activation Bars -->
+        <rect x="216" y="128" width="8" height="424" rx="2" fill="rgba(10,37,64,0.06)" stroke="#425466" stroke-width="0.8"/>
+        <rect x="856" y="144" width="8" height="408" rx="2" fill="rgba(223,27,65,0.06)" stroke="#df1b41" stroke-width="0.8"/>
+
+        <!-- ================= FRAGMENT FRAME: HAZARD ZONE ================= -->
+        <rect x="140" y="248" width="800" height="152" rx="4" fill="rgba(223,27,65,0.03)" stroke="rgba(223,27,65,0.3)" stroke-width="1"/>
+        <rect x="140" y="248" width="56" height="16" rx="2" fill="#f6f9fc" stroke="rgba(223,27,65,0.3)" stroke-width="1"/>
+        <text x="168" y="260" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">HAZARD</text>
+        <text x="212" y="260" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace">[Out-of-order network latency &gt; timeout threshold]</text>
+
+        <!-- ================= MESSAGES (Connectors) ================= -->
+
+        <!-- Event 1: Initial Delivery d1 -->
+        <line x1="224" y1="144" x2="852" y2="144" stroke="#425466" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <!-- Mask and label 1 -->
+        <rect x="424" y="128" width="232" height="12" rx="2" fill="#f6f9fc"/>
+        <text x="540" y="137" fill="#0a2540" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">POST /webhook {id: "d1", f1, v: 2, open}</text>
+
+        <!-- Event 2: Network Timeout + Redelivery d1 -->
+        <line x1="224" y1="208" x2="852" y2="208" stroke="#635bff" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="396" y="192" width="288" height="12" rx="2" fill="#f6f9fc"/>
+        <text x="540" y="201" fill="#635bff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RETRY /webhook {id: "d1", f1, v: 2, open} (DUPLICATE)</text>
+
+        <!-- Event 3: Stale Delayed Delivery d2 -->
+        <line x1="224" y1="304" x2="852" y2="304" stroke="#df1b41" stroke-width="1.2" marker-end="url(#arrow-danger)"/>
+        <rect x="392" y="288" width="296" height="12" rx="2" fill="#f6f9fc"/>
+        <text x="540" y="297" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DELAYED /webhook {id: "d2", f1, v: 1, resolved} (STALE)</text>
+
+        <!-- Stale consequence callout arrow -->
+        <path d="M 864,304 H 912 Q 920,304 920,312 V 336 Q 920,344 912,344 H 872" fill="none" stroke="#df1b41" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-danger)"/>
+        <text x="932" y="328" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace">STALE REGRESSION!</text>
+        <text x="932" y="340" fill="#425466" font-size="7.5" font-family="'Geist', sans-serif">f1 v2 downgraded to v1</text>
+
+        <!-- Event 4: Version Conflict Delivery d7 -->
+        <line x1="224" y1="432" x2="852" y2="432" stroke="#df1b41" stroke-width="1.2" marker-end="url(#arrow-danger)"/>
+        <rect x="388" y="416" width="304" height="12" rx="2" fill="#f6f9fc"/>
+        <text x="540" y="425" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COLLISION /webhook {id: "d7", f1, v: 3, open} (CONFLICT)</text>
+        <text x="540" y="444" fill="#425466" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">f1 already resolved at v3 by d3 → status contradiction at same version</text>
+
+        <!-- Event 5: Foreign Tenant Leakage d4 -->
+        <line x1="224" y1="512" x2="852" y2="512" stroke="#425466" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+        <rect x="408" y="496" width="264" height="12" rx="2" fill="#f6f9fc"/>
+        <text x="540" y="505" fill="#425466" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CROSS-TALK {id: "d4", tenant: "south", f9, v: 1}</text>
+        <text x="540" y="524" fill="#425466" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">Foreign tenant data must never pollute north state or reserve idempotency keys</text>
+
+        <!-- ================= ACTOR NODES (Top Row) ================= -->
+
+        <!-- Actor 1: Dispatcher -->
+        <rect x="140" y="40" width="160" height="48" rx="6" fill="#ffffff" stroke="#0a2540" stroke-width="1"/>
+        <rect x="148" y="48" width="48" height="12" rx="2" fill="transparent" stroke="rgba(10,37,64,0.4)" stroke-width="0.8"/>
+        <text x="172" y="57" fill="#425466" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SENDER</text>
+        <text x="220" y="70" fill="#0a2540" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Webhook Dispatcher</text>
+        <text x="220" y="82" fill="#687d94" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">upstream retrier</text>
+
+        <!-- Actor 2: Network -->
+        <rect x="460" y="40" width="160" height="48" rx="6" fill="#ffffff" stroke="rgba(10,37,64,0.3)" stroke-width="1"/>
+        <rect x="468" y="48" width="56" height="12" rx="2" fill="transparent" stroke="rgba(10,37,64,0.4)" stroke-width="0.8"/>
+        <text x="496" y="57" fill="#425466" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CHANNEL</text>
+        <text x="540" y="70" fill="#0a2540" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Network Transport</text>
+        <text x="540" y="82" fill="#687d94" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">jitter &amp; reordering</text>
+
+        <!-- Actor 3: Naive Consumer (Focal) -->
+        <rect x="780" y="40" width="160" height="48" rx="6" fill="rgba(223,27,65,0.06)" stroke="#df1b41" stroke-width="1.2"/>
+        <rect x="788" y="48" width="52" height="12" rx="2" fill="transparent" stroke="rgba(223,27,65,0.5)" stroke-width="0.8"/>
+        <text x="814" y="57" fill="#df1b41" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">UNSAFE</text>
+        <text x="860" y="70" fill="#0a2540" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Naive Consumer</text>
+        <text x="860" y="82" fill="#df1b41" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">corrupts state</text>
+
+        <!-- ================= LEGEND STRIP ================= -->
+        <line x1="40" y1="656" x2="1040" y2="656" stroke="rgba(10,37,64,0.12)" stroke-width="0.8"/>
+        <text x="40" y="680" fill="#425466" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND · MESSAGE HAZARDS</text>
+
+        <line x1="240" y1="676" x2="268" y2="676" stroke="#425466" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="276" y="680" fill="#425466" font-size="8.5" font-family="'Geist', sans-serif">Standard Ingress</text>
+
+        <line x1="400" y1="676" x2="428" y2="676" stroke="#635bff" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <text x="436" y="680" fill="#425466" font-size="8.5" font-family="'Geist', sans-serif">Duplicate Retry</text>
+
+        <line x1="560" y1="676" x2="588" y2="676" stroke="#df1b41" stroke-width="1.2" marker-end="url(#arrow-danger)"/>
+        <text x="596" y="680" fill="#425466" font-size="8.5" font-family="'Geist', sans-serif">Stale / Conflicting Hazard</text>
+
+        <rect x="740" y="672" width="24" height="12" rx="2" fill="rgba(223,27,65,0.06)" stroke="#df1b41" stroke-width="0.8"/>
+        <text x="772" y="680" fill="#425466" font-size="8.5" font-family="'Geist', sans-serif">Unprotected Ingress Point</text>
+      </svg>
