@@ -56,7 +56,7 @@ flowchart TD
     class Dup,Stale,Redundant,StoreID neutral;
 ```
 
-> **Interactive Diagram Available:** A standalone, styled editorial diagram conforming to the Diagram Design editorial design system is available at [`webhook-inbox-guide.html`](file:///home/regisx001/04-webhook-inbox/webhook-inbox-guide.html).
+> **Interactive Diagram Available:** A standalone, styled editorial diagram conforming to the Diagram Design editorial design system is available at [`webhook-inbox-architecture-guide.html`](file:///home/regisx001/04-webhook-inbox/docs/webhook-inbox-architecture-guide.html).
 
 ---
 

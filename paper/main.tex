@@ -133,7 +133,7 @@ Upstream webhook publishers use timeout-driven retries with exponential backoff,
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.90\linewidth]{diagram-problem.png}
+\includegraphics[width=0.90\linewidth]{webhook-redelivery-hazards.png}
 \caption{Sequence analysis of webhook redeliveries, latency hazards, and state regressions.}
 \label{fig:problem_diagram}
 \end{figure}
@@ -176,7 +176,7 @@ Figure~\ref{fig:decision_flow} depicts the two-tier ingestion pipeline, and Tabl
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.92\linewidth]{diagram-solution.png}
+\includegraphics[width=0.92\linewidth]{idempotent-pipeline-architecture.png}
 \caption{Two-tier ingestion architecture decoupling transport deduplication from domain monotonicity, backed by sibling-file atomic POSIX persistence (ADR-04).}
 \label{fig:decision_flow}
 \end{figure}

@@ -10,8 +10,8 @@ This document fulfills the four required submission deliverables specified in [R
 
 > **Key Artifacts Available:**
 > - **Technical Paper (LaTeX Source):** [`paper/main.tex`](file:///home/regisx001/04-webhook-inbox/paper/main.tex) (Complete professional research paper with mathematical models, code listings, ADRs, and verification metrics).
-> - **Problem Analysis Diagram:** [`docs/diagram-problem.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-problem.html) (Sequence diagram of redelivery races, stale regressions, and conflict hazards).
-> - **Solution Architecture Diagram:** [`docs/diagram-solution.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-solution.html) (Two-tier decision pipeline and ADR-04 atomic state durability).
+> - **Problem Analysis Diagram:** [`docs/webhook-redelivery-hazards.html`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.html) (Sequence diagram of redelivery races, stale regressions, and conflict hazards).
+> - **Solution Architecture Diagram:** [`docs/idempotent-pipeline-architecture.html`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.html) (Two-tier decision pipeline and ADR-04 atomic state durability).
 
 ---
 
@@ -363,12 +363,12 @@ OK
 Two standalone, interactive editorial diagrams conforming to the **Diagram Design** system (styled in the **Stripe** infrastructure brand palette) are provided in the repository to visually communicate the problem dynamics and solution architecture:
 
 ### 5.1 Diagram 1: The Problem — Webhook Retries & State Corruption Risks
-- **Interactive HTML:** [`docs/diagram-problem.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-problem.html)
-- **Standalone SVG:** [`docs/diagram-problem.svg`](file:///home/regisx001/04-webhook-inbox/docs/diagram-problem.svg)
-- **High-Resolution PNG:** [`docs/diagram-problem.png`](file:///home/regisx001/04-webhook-inbox/docs/diagram-problem.png)
+- **Interactive HTML:** [`docs/webhook-redelivery-hazards.html`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.html)
+- **Standalone SVG:** [`docs/webhook-redelivery-hazards.svg`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.svg)
+- **High-Resolution PNG:** [`docs/webhook-redelivery-hazards.png`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.png)
 - **Visual Type:** Sequence Diagram
 
-![Problem Analysis Diagram](docs/diagram-problem.png)
+![Problem Analysis Diagram](docs/webhook-redelivery-hazards.png)
 
 - **Key Concepts Visualized:**
   - **Duplicate Ingestion:** Webhook Dispatcher retrying unacknowledged requests and sending identical `d1` events multiple times.
@@ -377,12 +377,12 @@ Two standalone, interactive editorial diagrams conforming to the **Diagram Desig
   - **Tenant Contamination:** Foreign tenant deliveries (`d4`, `south`) attempting to breach tenant isolation.
 
 ### 5.2 Diagram 2: The Solution — Two-Tier Pipeline & Crash-Safe Durability
-- **Interactive HTML:** [`docs/diagram-solution.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-solution.html)
-- **Standalone SVG:** [`docs/diagram-solution.svg`](file:///home/regisx001/04-webhook-inbox/docs/diagram-solution.svg)
-- **High-Resolution PNG:** [`docs/diagram-solution.png`](file:///home/regisx001/04-webhook-inbox/docs/diagram-solution.png)
+- **Interactive HTML:** [`docs/idempotent-pipeline-architecture.html`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.html)
+- **Standalone SVG:** [`docs/idempotent-pipeline-architecture.svg`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.svg)
+- **High-Resolution PNG:** [`docs/idempotent-pipeline-architecture.png`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.png)
 - **Visual Type:** Architecture & Pipeline Flowchart
 
-![Solution Architecture Diagram](docs/diagram-solution.png)
+![Solution Architecture Diagram](docs/idempotent-pipeline-architecture.png)
 
 - **Key Concepts Visualized:**
   - **Tier 1 (Delivery Identity Gate):** Evaluates incoming delivery IDs; returns `duplicate` for identical payloads and `rejected` for delivery conflicts without modifying findings.
