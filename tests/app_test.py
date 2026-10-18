@@ -173,6 +173,108 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_top_level_payload({"tenant": "south", "deliveries": []}, "north")
 
+    def testValidateRow_whenStatusNotLowerCase_rejectsDueToCaseSensitivity(self) -> None:
+        row = {
+            "delivery_id": "d1",
+            "tenant": "north",
+            "finding_id": "f1",
+            "version": 1,
+            "status": "OPEN",
+        }
+        is_valid, canonical, delivery_id, reason = validate_delivery_row(row, "north")
+        self.assertFalse(is_valid)
+        self.assertIsNone(canonical)
+        self.assertIn("status must be 'open' or 'resolved'", reason)
+
+    def testValidateRow_whenDeliveryIdNotString_rejects(self) -> None:
+        row = {
+            "delivery_id": 999,
+            "tenant": "north",
+            "finding_id": "f1",
+            "version": 1,
+            "status": "open",
+        }
+        is_valid, canonical, delivery_id, reason = validate_delivery_row(row, "north")
+        self.assertFalse(is_valid)
+        self.assertIsNone(canonical)
+        self.assertIn("delivery_id must be a non-empty string", reason)
+
+
+class BoundaryAndEdgeCaseTests(unittest.TestCase):
+    def testCli_whenEmptyDeliveries_succeedsWithZeroCountsAndCreatesState(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            input_file = pathlib.Path(tmp_dir) / "empty_input.json"
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            input_file.write_text(json.dumps({"tenant": "north", "deliveries": []}), encoding="utf-8")
+
+            result = _run_cli("--input", str(input_file), "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["counts"], {
+                "applied": 0,
+                "duplicate": 0,
+                "redundant": 0,
+                "rejected": 0,
+                "stale": 0,
+            })
+            self.assertEqual(data["results"], [])
+            self.assertEqual(data["findings"], {})
+            self.assertTrue(state_file.exists())
+            saved = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved["tenant"], "north")
+            self.assertEqual(saved["deliveries"], {})
+            self.assertEqual(saved["findings"], {})
+
+    def testCli_whenStateTenantMismatch_exitsTwoAndPreservesState(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "south_state.json"
+            original_bytes = json.dumps({
+                "tenant": "south",
+                "deliveries": {},
+                "findings": {},
+            }, indent=2).encode("utf-8")
+            state_file.write_bytes(original_bytes)
+
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error:", result.stderr)
+            self.assertIn("state tenant mismatch", result.stderr)
+            self.assertEqual(state_file.read_bytes(), original_bytes)
+
+    def testCli_whenVersionConflictRejected_keyIsReservedForReplayDeduplication(self) -> None:
+        """Constructed boundary case: verifies that a row rejected with 'version conflict'
+
+        reserves its idempotency key so subsequent redelivery is classified as 'duplicate'.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            input_file = pathlib.Path(tmp_dir) / "conflict_input.json"
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+
+            # Row 1 applies f1 @ v3 resolved.
+            # Row 2 arrives with d2 @ v3 open -> version conflict rejection.
+            # Row 3 arrives redelivering d2 @ v3 open -> must be duplicate!
+            payload = {
+                "tenant": "north",
+                "deliveries": [
+                    {"delivery_id": "d1", "tenant": "north", "finding_id": "f1", "version": 3, "status": "resolved"},
+                    {"delivery_id": "d2", "tenant": "north", "finding_id": "f1", "version": 3, "status": "open"},
+                    {"delivery_id": "d2", "tenant": "north", "finding_id": "f1", "version": 3, "status": "open"},
+                ],
+            }
+            input_file.write_text(json.dumps(payload), encoding="utf-8")
+
+            result = _run_cli("--input", str(input_file), "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["counts"]["applied"], 1)
+            self.assertEqual(data["counts"]["rejected"], 1)
+            self.assertEqual(data["counts"]["duplicate"], 1)
+            self.assertEqual(data["results"][1]["outcome"], "rejected")
+            self.assertEqual(data["results"][1]["reason"], "version conflict")
+            self.assertEqual(data["results"][2]["outcome"], "duplicate")
+            self.assertEqual(data["results"][2]["reason"], "duplicate delivery")
+
 
 if __name__ == "__main__":
     unittest.main()
+

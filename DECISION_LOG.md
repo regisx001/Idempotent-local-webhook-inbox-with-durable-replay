@@ -91,6 +91,8 @@ This document records the core architectural decisions, design rationale, trade-
 - **Tradeoff Analysis:**
   - *Why not write directly to `state_path`?* A crash mid-write leaves zero-length or truncated JSON.
   - *Why same directory (`target.with_name(...)`)?* On POSIX systems, `rename()` / `os.replace()` is only atomic when the source and destination reside on the **same filesystem mount**. Using `/tmp` or system temp directories risks a cross-device copy-and-unlink operation, which is non-atomic.
+- **Provenance & Review:**
+  This pattern originated as an AI architectural suggestion during design review. It was adopted because it directly eliminated the truncation risk without requiring external dependencies or full transaction frameworks.
 
 ---
 
