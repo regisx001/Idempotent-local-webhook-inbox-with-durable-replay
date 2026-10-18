@@ -1,17 +1,19 @@
 # Idempotent Local Webhook Inbox: Submission Deliverables
 
-This document fulfills the four required submission deliverables specified in [README.md](file:///home/regisx001/04-webhook-inbox/README.md#L60-L72):
+This document fulfills the four required submission deliverables specified in the assessment brief:
 1. [Short Run Guide](#1-short-run-guide)
 2. [Decision and Work Log](#2-decision-and-work-log)
 3. [AI-Use Note](#3-ai-use-note)
 4. [Accessible Walkthrough Narrative](#4-accessible-walkthrough-narrative)
-5. [Visual Diagrams (Stripe Editorial Spec)](#5-visual-diagrams)
+5. [Visual Diagrams](#5-visual-diagrams)
 6. [Academic Technical Paper (LaTeX)](#6-academic-technical-paper-latex)
 
-> **Key Artifacts Available:**
-> - **Technical Paper (LaTeX Source):** [`paper/main.tex`](file:///home/regisx001/04-webhook-inbox/paper/main.tex) (Complete professional research paper with mathematical models, code listings, ADRs, and verification metrics).
-> - **Problem Analysis Diagram:** [`docs/webhook-redelivery-hazards.html`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.html) (Sequence diagram of redelivery races, stale regressions, and conflict hazards).
-> - **Solution Architecture Diagram:** [`docs/idempotent-pipeline-architecture.html`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.html) (Two-tier decision pipeline and ADR-04 atomic state durability).
+> **Key Artifacts in Repository:**
+> - **Operational Run Guide:** [`README.md`](README.md)
+> - **Architectural Decision Records:** [`DECISION_LOG.md`](DECISION_LOG.md)
+> - **Supplementary Paper (LaTeX Source):** [`paper/main.tex`](paper/main.tex)
+> - **Problem Analysis Diagram:** [`docs/webhook-redelivery-hazards.html`](docs/webhook-redelivery-hazards.html)
+> - **Solution Architecture Diagram:** [`docs/idempotent-pipeline-architecture.html`](docs/idempotent-pipeline-architecture.html)
 
 ---
 
@@ -60,7 +62,7 @@ python3 app.py --input inputs/primary.json --tenant north --state scratch-state.
     {"delivery_id": "d1", "outcome": "rejected", "reason": "delivery conflict", "row": 3},
     {"delivery_id": "d2", "outcome": "stale", "reason": "stale version", "row": 4},
     {"delivery_id": "d3", "outcome": "applied", "reason": "finding updated", "row": 5},
-    {"delivery_id": "d4", "outcome": "rejected", "reason": "foreign tenant: south", "row": 6},
+    {"delivery_id": "d4", "outcome": "rejected", "reason": "foreign tenant", "row": 6},
     {"delivery_id": "d5", "outcome": "rejected", "reason": "version must be a positive integer", "row": 7},
     {"delivery_id": "d6", "outcome": "applied", "reason": "finding updated", "row": 8},
     {"delivery_id": "d7", "outcome": "rejected", "reason": "version conflict", "row": 9}
@@ -99,7 +101,7 @@ python3 app.py --input inputs/primary.json --tenant north --state scratch-state.
     {"delivery_id": "d1", "outcome": "rejected", "reason": "delivery conflict", "row": 3},
     {"delivery_id": "d2", "outcome": "duplicate", "reason": "duplicate delivery", "row": 4},
     {"delivery_id": "d3", "outcome": "duplicate", "reason": "duplicate delivery", "row": 5},
-    {"delivery_id": "d4", "outcome": "rejected", "reason": "foreign tenant: south", "row": 6},
+    {"delivery_id": "d4", "outcome": "rejected", "reason": "foreign tenant", "row": 6},
     {"delivery_id": "d5", "outcome": "rejected", "reason": "version must be a positive integer", "row": 7},
     {"delivery_id": "d6", "outcome": "duplicate", "reason": "duplicate delivery", "row": 8},
     {"delivery_id": "d7", "outcome": "duplicate", "reason": "duplicate delivery", "row": 9}
@@ -223,7 +225,7 @@ AI assistance was utilized strictly as an interactive architectural advisor, edg
 ---
 
 ### 3.2 The Initial Problem Briefing: Prompt & AI Answer
-The development workflow began with the explicit briefing prompt preserved in [`ai_use/01-Explanation.md`](file:///home/regisx001/04-webhook-inbox/ai_use/01-Explanation.md):
+The development workflow began with the explicit briefing prompt preserved in [`ai_use/01-Explanation.md`](ai_use/01-Explanation.md):
 
 #### The Prompt:
 > *"Explain the problem to me clearly before I start solving it. Break down the requirements, explain what is expected from me, provide practical examples and edge cases, and suggest how I should approach the problem step by step.*
@@ -265,11 +267,12 @@ The AI guided the formalization of four pivotal Architectural Decision Records (
 #### 1. Concrete Accepted Suggestion: ADR-04 (Same-Directory Atomic Replacement)
 - **What was suggested:** The AI recommended using sibling temporary file swapping (`target.with_name(f".{target.name}.tmp")`) combined with `temp_path.replace(target)`.
 - **Why it was accepted:** A direct `open(state_path, "w")` immediately truncates the file to 0 bytes before writing, exposing state to total loss if interrupted. Furthermore, using system `/tmp` often crosses filesystem boundaries (e.g. `tmpfs` RAM disk), causing `replace` to fall back to a non-atomic copy. The same-directory pattern guarantees atomic inode swapping on POSIX systems.
+- **Verification:** Verified by `testCli_whenStateWriteFails_exitsTwoNoTracebackAndPreservesState` and `testSaveState_whenReplaceFails_raisesValueErrorCleansTempAndPreservesState`. When `replace` fails, original bytes remain intact and temporary files are unlinked.
 
 #### 2. Concrete Corrected Hallucination: Key Reservation Timing (Row 9 Trap)
 - **AI Proposal:** When asked how to handle rejected rows, the AI initially proposed skipping state updates entirely for all non-applied rows.
 - **Why it was wrong:** In `primary.json`, Row 9 (`d7, f1, v3 open`) conflicts with existing finding `f1` (`v3 resolved`) and is classified as `rejected (version conflict)`. If `d7` is not reserved in `state["deliveries"]`, the replay run (Run 2) re-evaluates `d7` as a new row, producing `duplicate: 5, rejected: 4` instead of the expected `duplicate: 6, rejected: 3`.
-- **Correction:** I corrected the AI's proposal by establishing ADR-03: decouple delivery syntax validation from entity state conflicts. Schema-invalid rows never reserve keys, but valid deliveries with entity conflicts **must** reserve their key immediately.
+- **Correction:** I corrected the AI's proposal by establishing ADR-03: decouple delivery syntax validation from entity state conflicts. Schema-invalid rows never reserve keys, but valid deliveries with entity conflicts **must** reserve their key immediately. Verified by `testCli_whenVersionConflictRejected_keyIsReservedForReplayDeduplication`.
 
 #### 3. Concrete Rejected Suggestion: Pre-Filtering Input Deliveries
 - **AI Proposal:** The AI initially suggested pre-filtering deliveries using `seen = set()` and `json.dumps(row)` to deduplicate incoming rows before running the business loop.
@@ -278,7 +281,7 @@ The AI guided the formalization of four pivotal Architectural Decision Records (
 #### 4. Concrete Corrected Type Check: Python Boolean Subclass Trap
 - **AI Proposal:** `isinstance(version, int) and version > 0`.
 - **Why it was wrong:** In Python, `bool` is a subclass of `int` (`issubclass(bool, int) is True`), allowing `version: true` to be treated as `1`.
-- **Correction:** Corrected to strict type checking: `type(version) is int and not isinstance(version, bool) and version > 0` (ADR-06).
+- **Correction:** Corrected to strict type checking: `type(version) is int and not isinstance(version, bool) and version > 0` (ADR-06). Verified by `testValidateRow_whenVersionBoolean_rejects`.
 
 ---
 
@@ -286,7 +289,7 @@ The AI guided the formalization of four pivotal Architectural Decision Records (
 Every piece of guidance and code was validated against:
 - **Exact Fixture Execution:** 3 sequential verification runs matching documented counts (`3/1/1/0/4` $\rightarrow$ `0/6/0/0/3` $\rightarrow$ `2/0/0/1/0`).
 - **Byte Invariance:** Automated test verifying that corrupt state files remain 100% byte-identical on disk after a fatal exit 2.
-- **Automated Regression Suite:** 18 passing unit tests in [`tests/app_test.py`](file:///home/regisx001/04-webhook-inbox/tests/app_test.py).
+- **Automated Regression Suite:** 23 passing unit tests in [`tests/app_test.py`](tests/app_test.py).
 
 ---
 
@@ -333,13 +336,18 @@ Below is raw terminal evidence of execution across the full test lifecycle:
 $ python3 -m unittest discover -s tests -p '*_test.py' -v
 testCli_whenEmptyDeliveries_succeedsWithZeroCountsAndCreatesState (app_test.BoundaryAndEdgeCaseTests.testCli_whenEmptyDeliveries_succeedsWithZeroCountsAndCreatesState) ... ok
 testCli_whenStateTenantMismatch_exitsTwoAndPreservesState (app_test.BoundaryAndEdgeCaseTests.testCli_whenStateTenantMismatch_exitsTwoAndPreservesState) ... ok
+testCli_whenStateWriteFails_exitsTwoNoTracebackAndPreservesState (app_test.BoundaryAndEdgeCaseTests.testCli_whenStateWriteFails_exitsTwoNoTracebackAndPreservesState) ... ok
 testCli_whenVersionConflictRejected_keyIsReservedForReplayDeduplication (app_test.BoundaryAndEdgeCaseTests.testCli_whenVersionConflictRejected_keyIsReservedForReplayDeduplication) ... ok
+testSaveState_whenReplaceFails_raisesValueErrorCleansTempAndPreservesState (app_test.BoundaryAndEdgeCaseTests.testSaveState_whenReplaceFails_raisesValueErrorCleansTempAndPreservesState) ... ok
 testCli_whenHelpRequested_returnsUsage (app_test.StarterTests.testCli_whenHelpRequested_returnsUsage) ... ok
 testCli_whenInputMissing_reportsReadableError (app_test.StarterTests.testCli_whenInputMissing_reportsReadableError) ... ok
 testCli_whenJsonMalformed_reportsReadableError (app_test.StarterTests.testCli_whenJsonMalformed_reportsReadableError) ... ok
 testCli_whenPrimaryReplayed_producesDocumentedReplayCounts (app_test.StarterTests.testCli_whenPrimaryReplayed_producesDocumentedReplayCounts) ... ok
 testCli_whenPrimaryRun_producesDocumentedCounts (app_test.StarterTests.testCli_whenPrimaryRun_producesDocumentedCounts) ... ok
 testCli_whenSecondaryRunOnPrimaryState_producesDocumentedCounts (app_test.StarterTests.testCli_whenSecondaryRunOnPrimaryState_producesDocumentedCounts) ... ok
+testCli_whenStateDeliveryStatusInvalidType_exitsTwoAndPreservesState (app_test.StarterTests.testCli_whenStateDeliveryStatusInvalidType_exitsTwoAndPreservesState) ... ok
+testCli_whenStateFindingNotDict_exitsTwoAndPreservesState (app_test.StarterTests.testCli_whenStateFindingNotDict_exitsTwoAndPreservesState) ... ok
+testCli_whenStateFindingStatusInvalidType_exitsTwoAndPreservesState (app_test.StarterTests.testCli_whenStateFindingStatusInvalidType_exitsTwoAndPreservesState) ... ok
 testCli_whenStateMalformed_exitsTwoAndPreservesBytes (app_test.StarterTests.testCli_whenStateMalformed_exitsTwoAndPreservesBytes) ... ok
 testValidateRow_whenDeliveryIdNotString_rejects (app_test.ValidationTests.testValidateRow_whenDeliveryIdNotString_rejects) ... ok
 testValidateRow_whenForeignTenant_rejectsWithReason (app_test.ValidationTests.testValidateRow_whenForeignTenant_rejectsWithReason) ... ok
@@ -351,21 +359,21 @@ testValidateRow_whenVersionZero_rejects (app_test.ValidationTests.testValidateRo
 testValidateTopLevel_whenTenantMismatch_raisesValueError (app_test.ValidationTests.testValidateTopLevel_whenTenantMismatch_raisesValueError) ... ok
 
 ----------------------------------------------------------------------
-Ran 18 tests in 0.945s
+Ran 23 tests in 1.259s
 
 OK
 ```
 
 ---
 
-## 5. Visual Diagrams
+## 5. Visual Diagrams (Supplementary)
 
 Two standalone, interactive editorial diagrams conforming to the **Diagram Design** system (styled in the **Stripe** infrastructure brand palette) are provided in the repository to visually communicate the problem dynamics and solution architecture:
 
 ### 5.1 Diagram 1: The Problem — Webhook Retries & State Corruption Risks
-- **Interactive HTML:** [`docs/webhook-redelivery-hazards.html`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.html)
-- **Standalone SVG:** [`docs/webhook-redelivery-hazards.svg`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.svg)
-- **High-Resolution PNG:** [`docs/webhook-redelivery-hazards.png`](file:///home/regisx001/04-webhook-inbox/docs/webhook-redelivery-hazards.png)
+- **Interactive HTML:** [`docs/webhook-redelivery-hazards.html`](docs/webhook-redelivery-hazards.html)
+- **Standalone SVG:** [`docs/webhook-redelivery-hazards.svg`](docs/webhook-redelivery-hazards.svg)
+- **High-Resolution PNG:** [`docs/webhook-redelivery-hazards.png`](docs/webhook-redelivery-hazards.png)
 - **Visual Type:** Sequence Diagram
 
 ![Problem Analysis Diagram](docs/webhook-redelivery-hazards.png)
@@ -377,9 +385,9 @@ Two standalone, interactive editorial diagrams conforming to the **Diagram Desig
   - **Tenant Contamination:** Foreign tenant deliveries (`d4`, `south`) attempting to breach tenant isolation.
 
 ### 5.2 Diagram 2: The Solution — Two-Tier Pipeline & Crash-Safe Durability
-- **Interactive HTML:** [`docs/idempotent-pipeline-architecture.html`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.html)
-- **Standalone SVG:** [`docs/idempotent-pipeline-architecture.svg`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.svg)
-- **High-Resolution PNG:** [`docs/idempotent-pipeline-architecture.png`](file:///home/regisx001/04-webhook-inbox/docs/idempotent-pipeline-architecture.png)
+- **Interactive HTML:** [`docs/idempotent-pipeline-architecture.html`](docs/idempotent-pipeline-architecture.html)
+- **Standalone SVG:** [`docs/idempotent-pipeline-architecture.svg`](docs/idempotent-pipeline-architecture.svg)
+- **High-Resolution PNG:** [`docs/idempotent-pipeline-architecture.png`](docs/idempotent-pipeline-architecture.png)
 - **Visual Type:** Architecture & Pipeline Flowchart
 
 ![Solution Architecture Diagram](docs/idempotent-pipeline-architecture.png)
@@ -392,9 +400,9 @@ Two standalone, interactive editorial diagrams conforming to the **Diagram Desig
 
 ---
 
-## 6. Academic Technical Paper (LaTeX)
+## 6. Academic Technical Paper (LaTeX) (Supplementary)
 
-For formal review, a complete academic and technical paper is available in the repository at [`paper/main.tex`](file:///home/regisx001/04-webhook-inbox/paper/main.tex).
+For formal review, a complete academic and technical paper is available in the repository at [`paper/main.tex`](paper/main.tex).
 
 - **Title:** *Design and Implementation of an Idempotent, Monotonic Webhook Ingestion Engine with Crash-Safe Local State Durability*
 - **Contents Included:**
@@ -403,7 +411,7 @@ For formal review, a complete academic and technical paper is available in the r
   - Full Architectural Decision Records matrix (ADR-01 through ADR-06) with tradeoff analyses.
   - Verbatim documentation of the initial conceptual human prompt and AI briefing response (`ai_use/01-Explanation.md`).
   - Core Python implementation listings with strict type guards (`type(v) is int and not isinstance(v, bool)`).
-  - Empirical verification results: 3 fixture replay benchmarks and 18-test automated regression suite table.
+  - Empirical verification results: 3 fixture replay benchmarks and 23-test automated regression suite table.
   - Comprehensive row-by-row trace of `inputs/primary.json` (Rows 1–9) with edge-case diagnosis.
 
 

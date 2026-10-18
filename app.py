@@ -68,7 +68,7 @@ def validate_delivery_row(
     # 2. Tenant isolation check (membership is case-sensitive)
     tenant = raw_tenant.strip()
     if tenant != expected_tenant:
-        return False, None, delivery_id, f"foreign tenant: {tenant}"
+        return False, None, delivery_id, "foreign tenant"
 
     # 3. Positive integer version check (excluding bool)
     if type(version) is not int or isinstance(version, bool) or version <= 0:
@@ -79,7 +79,7 @@ def validate_delivery_row(
         return False, None, delivery_id, "status must be a string"
     status = raw_status.strip()
     if status not in VALID_STATUSES:
-        return False, None, delivery_id, f"status must be 'open' or 'resolved', got '{status}'"
+        return False, None, delivery_id, "status must be 'open' or 'resolved'"
 
     canonical = {
         "tenant": tenant,
@@ -124,31 +124,37 @@ def load_state(state_path: pathlib.Path, expected_tenant: str) -> dict[str, typi
     if not isinstance(findings, dict):
         raise ValueError("state findings must be an object")
 
-    for delivery_id, payload in deliveries.items():
-        if not isinstance(delivery_id, str) or not delivery_id.strip():
-            raise ValueError("state delivery_id must be a non-empty string")
-        if not isinstance(payload, dict):
-            raise ValueError("state delivery payload must be an object")
-        if payload.get("tenant") != expected_tenant:
-            raise ValueError("state delivery payload tenant mismatch")
-        if not isinstance(payload.get("finding_id"), str) or not payload["finding_id"].strip():
-            raise ValueError("state delivery payload missing finding_id")
-        ver = payload.get("version")
-        if type(ver) is not int or isinstance(ver, bool) or ver <= 0:
-            raise ValueError("state delivery payload invalid version")
-        if payload.get("status") not in VALID_STATUSES:
-            raise ValueError("state delivery payload invalid status")
+    try:
+        for delivery_id, payload in deliveries.items():
+            if not isinstance(delivery_id, str) or not delivery_id.strip():
+                raise ValueError("state delivery_id must be a non-empty string")
+            if not isinstance(payload, dict):
+                raise ValueError("state delivery payload must be an object")
+            if payload.get("tenant") != expected_tenant:
+                raise ValueError("state delivery payload tenant mismatch")
+            fid = payload.get("finding_id")
+            if not isinstance(fid, str) or not fid.strip():
+                raise ValueError("state delivery payload missing finding_id")
+            ver = payload.get("version")
+            if type(ver) is not int or isinstance(ver, bool) or ver <= 0:
+                raise ValueError("state delivery payload invalid version")
+            deliv_status = payload.get("status")
+            if not isinstance(deliv_status, str) or deliv_status not in VALID_STATUSES:
+                raise ValueError("state delivery payload invalid status")
 
-    for finding_id, finding in findings.items():
-        if not isinstance(finding_id, str) or not finding_id.strip():
-            raise ValueError("state finding_id must be a non-empty string")
-        if not isinstance(finding, dict):
-            raise ValueError("state finding must be an object")
-        ver = finding.get("version")
-        if type(ver) is not int or isinstance(ver, bool) or ver <= 0:
-            raise ValueError("state finding invalid version")
-        if finding.get("status") not in VALID_STATUSES:
-            raise ValueError("state finding invalid status")
+        for finding_id, finding in findings.items():
+            if not isinstance(finding_id, str) or not finding_id.strip():
+                raise ValueError("state finding_id must be a non-empty string")
+            if not isinstance(finding, dict):
+                raise ValueError("state finding must be an object")
+            ver = finding.get("version")
+            if type(ver) is not int or isinstance(ver, bool) or ver <= 0:
+                raise ValueError("state finding invalid version")
+            finding_status = finding.get("status")
+            if not isinstance(finding_status, str) or finding_status not in VALID_STATUSES:
+                raise ValueError("state finding invalid status")
+    except (TypeError, AttributeError) as error:
+        raise ValueError(f"malformed state schema: {error}") from error
 
     return data
 

@@ -117,7 +117,7 @@
 
 \begin{tcolorbox}[colback=gbg, colframe=gborder, boxrule=0.5pt, arc=2pt, left=10pt, right=10pt, top=6pt, bottom=6pt]
 \footnotesize\noindent\textbf{\color{gdark}Abstract ---}
-At-least-once webhook delivery introduces duplicate packets, out-of-order versions, status collisions, and mid-write crash risks. This paper presents a zero-dependency Python 3.10+ ingestion engine that enforces tenant isolation, deduplicates payloads via canonical matching, guarantees monotonic version progression, and persists state via atomic POSIX \texttt{os.replace}. We formalize six Architectural Decision Records (ADRs)—highlighting immediate key reservation on version conflicts (Row 9 replay hazard) and strict boolean type exclusion—and verify the system across three fixture stages and 18 unit tests with zero byte mutations on corrupt state.
+At-least-once webhook delivery introduces duplicate packets, out-of-order versions, status collisions, and mid-write crash risks. This paper presents a zero-dependency Python 3.10+ ingestion engine that enforces tenant isolation, deduplicates payloads via canonical matching, guarantees monotonic version progression, and persists state via atomic POSIX \texttt{os.replace}. We formalize six Architectural Decision Records (ADRs)—highlighting immediate key reservation on version conflicts (Row 9 replay hazard) and strict boolean type exclusion—and verify the system across three fixture stages and 23 unit tests with zero byte mutations on corrupt state.
 \end{tcolorbox}
 \vspace{0.3em}
 
@@ -246,7 +246,7 @@ def validate_delivery_row(
 
     tenant = raw_tenant.strip()
     if tenant != expected_tenant:
-        return False, None, delivery_id, f"foreign tenant: {tenant}"
+        return False, None, delivery_id, "foreign tenant"
 
     # Strict type identity check excluding bool
     if type(version) is not int or isinstance(version, bool) or version <= 0:
@@ -256,7 +256,7 @@ def validate_delivery_row(
         return False, None, delivery_id, "status must be a string"
     status = raw_status.strip()
     if status not in VALID_STATUSES:
-        return False, None, delivery_id, f"status must be 'open' or 'resolved', got '{status}'"
+        return False, None, delivery_id, "status must be 'open' or 'resolved'"
 
     canonical = {
         "tenant": tenant,
@@ -344,7 +344,7 @@ for row_idx, row in enumerate(deliveries, start=1):
 \begin{table}[htbp]
 \centering\footnotesize
 \renewcommand{\arraystretch}{1.1}
-\caption{Automated 18-Test Regression Suite (\texttt{tests/app\_test.py})}
+\caption{Automated 23-Test Regression Suite (\texttt{tests/app\_test.py})}
 \label{tab:test_results}
 \begin{tabularx}{\textwidth}{@{}lXl|lXl@{}}
 \toprule
@@ -357,7 +357,10 @@ for row_idx, row in enumerate(deliveries, start=1):
 \texttt{whenSecondaryRun} & Counts (2/0/0/1/0) & \textcolor{ggreen}{\textbf{P}} & \texttt{whenDeliveryIdInt} & Non-str ID rejected & \textcolor{ggreen}{\textbf{P}} \\
 \texttt{whenStateMalformed} & 0-byte mutation, exit 2 & \textcolor{ggreen}{\textbf{P}} & \texttt{whenEmptyDeliveries} & Empty batch succeeds & \textcolor{ggreen}{\textbf{P}} \\
 \texttt{whenWhitespace} & Trims canonical strings & \textcolor{ggreen}{\textbf{P}} & \texttt{whenStateTenantMismatch} & Foreign state preserved & \textcolor{ggreen}{\textbf{P}} \\
-\texttt{whenForeignTenant} & No key reserved & \textcolor{ggreen}{\textbf{P}} & \texttt{whenVersionConflict} & Row 9 replay proof & \textcolor{ggreen}{\textbf{P}} \\ \bottomrule
+\texttt{whenForeignTenant} & No key reserved & \textcolor{ggreen}{\textbf{P}} & \texttt{whenVersionConflict} & Row 9 replay proof & \textcolor{ggreen}{\textbf{P}} \\
+\texttt{whenStatusListFinding} & Schema: list status, exit 2 & \textcolor{ggreen}{\textbf{P}} & \texttt{whenSaveReplaceFails} & Atomic write error rollback & \textcolor{ggreen}{\textbf{P}} \\
+\texttt{whenStatusListDeliv} & Schema: delivery status list & \textcolor{ggreen}{\textbf{P}} & \texttt{whenWriteFailsCli} & CLI write fail exit 2 & \textcolor{ggreen}{\textbf{P}} \\
+\texttt{whenFindingNotDict} & Schema: non-dict finding & \textcolor{ggreen}{\textbf{P}} & & & \\ \bottomrule
 \end{tabularx}
 \end{table}
 

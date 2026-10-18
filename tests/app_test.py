@@ -8,8 +8,21 @@ import tempfile
 import unittest
 
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+APP_PY = REPO_ROOT / "app.py"
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
 def _run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, "app.py", *arguments], capture_output=True, text=True, check=False)
+    return subprocess.run(
+        [sys.executable, str(APP_PY), *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
 
 
 class StarterTests(unittest.TestCase):
@@ -92,7 +105,48 @@ class StarterTests(unittest.TestCase):
             self.assertEqual(state_file.read_bytes(), corrupt_bytes)
 
 
-from app import validate_delivery_row, validate_top_level_payload
+    def testCli_whenStateFindingStatusInvalidType_exitsTwoAndPreservesState(self) -> None:
+        """Regression test for confirmed defect: list-valued finding status raises ValueError not TypeError."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            content = b'{\n  "tenant": "north",\n  "deliveries": {},\n  "findings": {\n    "f1": {\n      "version": 1,\n      "status": []\n    }\n  }\n}\n'
+            state_file.write_bytes(content)
+
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error:", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(state_file.read_bytes(), content)
+
+    def testCli_whenStateDeliveryStatusInvalidType_exitsTwoAndPreservesState(self) -> None:
+        """Regression test: list-valued delivery payload status raises ValueError not TypeError."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            content = b'{\n  "tenant": "north",\n  "deliveries": {\n    "d1": {\n      "tenant": "north",\n      "finding_id": "f1",\n      "version": 1,\n      "status": []\n    }\n  },\n  "findings": {}\n}\n'
+            state_file.write_bytes(content)
+
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error:", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(state_file.read_bytes(), content)
+
+    def testCli_whenStateFindingNotDict_exitsTwoAndPreservesState(self) -> None:
+        """Regression test: non-dict finding in state exits 2 with readable error and preserves state."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            content = b'{\n  "tenant": "north",\n  "deliveries": {},\n  "findings": {\n    "f1": ["invalid", "list"]\n  }\n}\n'
+            state_file.write_bytes(content)
+
+            result = _run_cli("--input", "inputs/primary.json", "--tenant", "north", "--state", str(state_file))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error:", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(state_file.read_bytes(), content)
+
+
+from app import save_state, validate_delivery_row, validate_top_level_payload
+from unittest.mock import patch
 
 
 class ValidationTests(unittest.TestCase):
@@ -273,6 +327,59 @@ class BoundaryAndEdgeCaseTests(unittest.TestCase):
             self.assertEqual(data["results"][1]["reason"], "version conflict")
             self.assertEqual(data["results"][2]["outcome"], "duplicate")
             self.assertEqual(data["results"][2]["reason"], "duplicate delivery")
+
+    def testSaveState_whenReplaceFails_raisesValueErrorCleansTempAndPreservesState(self) -> None:
+        """Unit test: write failure during atomic replace cleans .tmp and preserves state bytes."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            initial_bytes = b'{\n  "tenant": "north",\n  "deliveries": {},\n  "findings": {}\n}\n'
+            state_file.write_bytes(initial_bytes)
+            new_state = {
+                "tenant": "north",
+                "deliveries": {"d1": {"tenant": "north", "finding_id": "f1", "version": 1, "status": "open"}},
+                "findings": {"f1": {"version": 1, "status": "open"}},
+            }
+
+            with patch.object(pathlib.Path, "replace", side_effect=OSError("Simulated filesystem full")):
+                with self.assertRaises(ValueError) as ctx:
+                    save_state(new_state, state_file)
+                self.assertIn("failed to save state", str(ctx.exception))
+
+            # Old bytes are untouched
+            self.assertEqual(state_file.read_bytes(), initial_bytes)
+            # Temporary file was cleaned up and does not linger
+            temp_file = state_file.with_name(f".{state_file.name}.tmp")
+            self.assertFalse(temp_file.exists())
+
+    def testCli_whenStateWriteFails_exitsTwoNoTracebackAndPreservesState(self) -> None:
+        """Integration test: CLI exits 2 with error line, no traceback, and preserves state on write failure."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_file = pathlib.Path(tmp_dir) / "state.json"
+            initial_bytes = b'{\n  "tenant": "north",\n  "deliveries": {},\n  "findings": {}\n}\n'
+            state_file.write_bytes(initial_bytes)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import pathlib, sys, unittest.mock, app; "
+                    "unittest.mock.patch.object(pathlib.Path, 'replace', side_effect=OSError('Simulated write failure')).start(); "
+                    "sys.exit(app.main())",
+                    "--input", "inputs/primary.json",
+                    "--tenant", "north",
+                    "--state", str(state_file),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=REPO_ROOT,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("error: failed to save state", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(state_file.read_bytes(), initial_bytes)
+            temp_file = state_file.with_name(f".{state_file.name}.tmp")
+            self.assertFalse(temp_file.exists())
 
 
 if __name__ == "__main__":
