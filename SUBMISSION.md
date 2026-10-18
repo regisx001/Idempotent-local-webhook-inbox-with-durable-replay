@@ -6,8 +6,10 @@ This document fulfills the four required submission deliverables specified in [R
 3. [AI-Use Note](#3-ai-use-note)
 4. [Accessible Walkthrough Narrative](#4-accessible-walkthrough-narrative)
 5. [Visual Diagrams (Stripe Editorial Spec)](#5-visual-diagrams)
+6. [Academic Technical Paper (LaTeX)](#6-academic-technical-paper-latex)
 
-> **Visual Diagrams Available:**
+> **Key Artifacts Available:**
+> - **Technical Paper (LaTeX Source):** [`paper/main.tex`](file:///home/regisx001/04-webhook-inbox/paper/main.tex) (Complete professional research paper with mathematical models, code listings, ADRs, and verification metrics).
 > - **Problem Analysis Diagram:** [`docs/diagram-problem.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-problem.html) (Sequence diagram of redelivery races, stale regressions, and conflict hazards).
 > - **Solution Architecture Diagram:** [`docs/diagram-solution.html`](file:///home/regisx001/04-webhook-inbox/docs/diagram-solution.html) (Two-tier decision pipeline and ADR-04 atomic state durability).
 
@@ -212,38 +214,79 @@ python3 -m unittest discover -s tests -p '*_test.py' -v
 
 ## 3. AI-Use Note
 
-### 3.1 Tools Used & Scope
-AI assistance was utilized for initial architectural design review, edge-case threat modeling, and drafting automated unit tests.
+### 3.1 Guiding Philosophy & Methodology
+AI assistance was utilized strictly as an interactive architectural advisor, edge-case sparring partner, and test-review tool. Rather than asking AI to generate code blind, the development process was intentionally structured so that AI **guided me in the right direction**:
+1. **Upfront Problem Clarification (Zero-Code Briefing):** Began by prompting the AI to analyze the assessment constraints, edge cases, and decision gates without writing code, allowing me to build a complete mental model before implementing anything.
+2. **Architectural Decision Framing (ADR Formulation):** Evaluated critical design trade-offs with AI assistance, producing clear architectural decision records (**ADR-03**, **ADR-04**, **ADR-05**, **ADR-06**).
+3. **Defensive Review & Hallucination Correction:** Rigorously cross-checked all AI suggestions against the README rules, catching and correcting flawed AI proposals (such as pre-filtering deliveries or lazy key reservation).
 
-### 3.2 Concrete Accepted Output: ADR-04 (Durability & Atomicity)
-- **The Suggestion:**
-  The AI suggested **ADR-04** (`Durability & Atomicity: Same-directory temporary file write with POSIX atomic os.replace` vs. `Direct file write with in-place truncation`).
-- **Why It Felt Reasonable Enough to Take Seriously:**
-  During architecture review, the initial naive approach was a standard direct write (`open(state_path, "w")`). The AI flagged that:
-  1. *Immediate Truncation Risk:* Direct in-place writes immediately truncate `state.json` to 0 bytes. If a crash, process termination (`kill -9`), or disk I/O error occurs mid-write, the existing state is permanently destroyed.
-  2. *Cross-Mount Pitfall:* Many developers use `tempfile.NamedTemporaryFile()` or system `/tmp`, but `/tmp` is frequently a separate filesystem or `tmpfs` RAM disk. In POSIX, moving across partitions triggers a non-atomic copy-and-unlink rather than an atomic rename.
-  3. *The Sibling Temp File Pattern:* Placing the hidden temporary file in the *exact same directory* (`target.with_name(f".{target.name}.tmp")`) guarantees both files share the same filesystem partition, making `temp_path.replace(target)` a true atomic inode metadata swap.
-  The tradeoff—*microscopic temporary file overhead vs. total crash resilience and byte-level state safety*—was compelling and aligned directly with the README requirement to preserve previous state on write failures. It was adopted directly as core architecture.
+---
 
-### 3.3 Concrete Corrected / Rejected Outputs
-1. **Rejected: Unified Single-Pass Event Filter:**
-   - *AI Proposal:* The AI initially suggested pre-filtering deliveries using `seen = set()` and `json.dumps(row)` to deduplicate incoming rows before processing.
-   - *Why It Was Wrong:* Pre-filtering dropped rows from the output (violating the requirement for 1-based indexed results for every row) and prevented detection of delivery conflicts (same ID with differing payloads).
-   - *Correction:* Replaced with a sequential in-order pipeline updating state immediately per row.
-2. **Corrected: Key Reservation Timing (Row 9 Bug):**
-   - *AI Proposal:* The AI initially suggested reserving delivery keys only when outcomes were `applied`.
-   - *Why It Was Wrong:* In Run 2 replay of `primary.json`, Row 9 (`d7`) was re-rejected instead of deduplicated, yielding `duplicate: 5` instead of `duplicate: 6`.
-   - *Correction:* Separated syntax/tenant validation from version conflict checking. Valid rows reserve keys immediately; invalid rows do not.
-3. **Corrected: Version Integer Validation:**
-   - *AI Proposal:* `isinstance(version, int) and version > 0`.
-   - *Why It Was Wrong:* Allowed `True` as version `1`.
-   - *Correction:* Refined to `type(version) is int and not isinstance(version, bool) and version > 0`.
+### 3.2 The Initial Problem Briefing: Prompt & AI Answer
+The development workflow began with the explicit briefing prompt preserved in [`ai_use/01-Explanation.md`](file:///home/regisx001/04-webhook-inbox/ai_use/01-Explanation.md):
 
-### 3.4 Verification Methodology
-Every line of code and suggestion was validated by:
-- Executing the three canonical fixture runs and matching counts verbatim.
-- Verifying error exit codes and byte preservation on corrupt state files.
-- Running the 18 automated unit tests in `tests/app_test.py`.
+#### The Prompt:
+> *"Explain the problem to me clearly before I start solving it. Break down the requirements, explain what is expected from me, provide practical examples and edge cases, and suggest how I should approach the problem step by step.*
+>
+> *Do not give me the solution, write code, or implement anything. I want to understand the problem, the reasoning behind it, and how to solve it independently."*
+
+#### The AI's Guiding Response:
+The AI returned a structured, code-free problem breakdown that shaped the entire implementation plan:
+1. **The Problem in One Paragraph:** A partner system redelivers finding status events (`open` / `resolved`) after timeouts, sometimes out of order. Build a CLI that processes deliveries in-order, decides what each means, updates local JSON state, and prints a JSON report. A second process run must never double-apply or regress state.
+2. **Core Concepts Clarified:**
+   - *Idempotency key:* `delivery_id`. Seen before = do not act twice.
+   - *Canonical payload:* `{tenant, finding_id, version, status}` after trimming. Distinguishes identical redelivery from conflicting ID reuse.
+   - *Monotonic version:* A finding's version only ascends; older events never overwrite newer ones.
+   - *Durable state & Atomic writes:* Local state survives separate process invocations and is never left half-written.
+3. **Per-Row Decision Precedence:** Defined the 7-step sequence (Validation $\rightarrow$ Duplicate $\rightarrow$ Delivery Conflict $\rightarrow$ Applied $\rightarrow$ Stale $\rightarrow$ Redundant $\rightarrow$ Version Conflict) and highlighted that steps 4–7 **must store the new delivery ID even when the outcome is stale or version-conflicted**.
+4. **Fixture Hand-Trace & Answer Key:** Encouraged hand-tracing `inputs/primary.json` before writing code, explicitly calling out the behavior of `d7` (Row 9) on Run 2 and `d4`/`d5` (invalid rows never reserving keys).
+5. **Edge Cases Flagged Early:**
+   - `version: true`: In Python, `isinstance(True, int)` is `True`. Flagged the need to exclude boolean coercion.
+   - String trimming: Trimming `" open "` vs `"open"` before comparing canonical payloads.
+   - Mid-batch state evolution: Earlier rows in a batch must immediately affect later rows in the same batch.
+   - Zero byte mutations: Ensuring corrupt state files abort with exit 2 and zero writes.
+
+---
+
+### 3.3 Core Architectural Guidance: The ADR Matrix
+The AI guided the formalization of four pivotal Architectural Decision Records (ADRs) that guaranteed correctness across both runs:
+
+| ADR ID | Decision Area | Chosen Architecture (Guided by AI) | Key Alternative Considered | Primary Tradeoff & Rationale |
+|---|---|---|---|---|
+| **ADR-03** | **Key Reservation Timing** | **Immediate reservation** of new valid `delivery_id` keys before version evaluation | Lazy reservation only on `applied` outcomes | *Tradeoff:* Version-conflicted rows (Row 9 `d7`) correctly deduplicate on Run 2 replay (`duplicate: 6`), whereas lazy reservation caused replay re-rejections (`duplicate: 5`). |
+| **ADR-04** | **Durability & Atomicity** | **Same-directory temporary file write** with POSIX atomic `os.replace` | Direct file write with in-place truncation | *Tradeoff:* Eliminates 0-byte file truncation risks on unexpected crashes with microscopic temporary file overhead. |
+| **ADR-05** | **Error & State Integrity** | **Strict fail-fast** on malformed/foreign state with zero byte mutations | Automatic state repair or fallback to empty state | *Tradeoff:* Prioritizes forensic data safety and error visibility over risky auto-recovery. Verified by testing byte invariants on corrupt files. |
+| **ADR-06** | **Type System Validation** | **Strict type identity** (`type(v) is int and not isinstance(v, bool)`) | Python standard `isinstance(v, int)` | *Tradeoff:* Prevents boolean coercion (`version: true` evaluated as integer `1`) from corrupting monotonic finding state. |
+
+---
+
+### 3.4 Concrete Accepted, Corrected, and Rejected Outputs
+
+#### 1. Concrete Accepted Suggestion: ADR-04 (Same-Directory Atomic Replacement)
+- **What was suggested:** The AI recommended using sibling temporary file swapping (`target.with_name(f".{target.name}.tmp")`) combined with `temp_path.replace(target)`.
+- **Why it was accepted:** A direct `open(state_path, "w")` immediately truncates the file to 0 bytes before writing, exposing state to total loss if interrupted. Furthermore, using system `/tmp` often crosses filesystem boundaries (e.g. `tmpfs` RAM disk), causing `replace` to fall back to a non-atomic copy. The same-directory pattern guarantees atomic inode swapping on POSIX systems.
+
+#### 2. Concrete Corrected Hallucination: Key Reservation Timing (Row 9 Trap)
+- **AI Proposal:** When asked how to handle rejected rows, the AI initially proposed skipping state updates entirely for all non-applied rows.
+- **Why it was wrong:** In `primary.json`, Row 9 (`d7, f1, v3 open`) conflicts with existing finding `f1` (`v3 resolved`) and is classified as `rejected (version conflict)`. If `d7` is not reserved in `state["deliveries"]`, the replay run (Run 2) re-evaluates `d7` as a new row, producing `duplicate: 5, rejected: 4` instead of the expected `duplicate: 6, rejected: 3`.
+- **Correction:** I corrected the AI's proposal by establishing ADR-03: decouple delivery syntax validation from entity state conflicts. Schema-invalid rows never reserve keys, but valid deliveries with entity conflicts **must** reserve their key immediately.
+
+#### 3. Concrete Rejected Suggestion: Pre-Filtering Input Deliveries
+- **AI Proposal:** The AI initially suggested pre-filtering deliveries using `seen = set()` and `json.dumps(row)` to deduplicate incoming rows before running the business loop.
+- **Why it was rejected:** Pre-filtering dropped rows from the results array (violating the requirement for 1-based indexed results for every row) and made it impossible to detect Delivery Conflicts (same ID with different payloads). I rejected this in favor of a single sequential in-order pipeline.
+
+#### 4. Concrete Corrected Type Check: Python Boolean Subclass Trap
+- **AI Proposal:** `isinstance(version, int) and version > 0`.
+- **Why it was wrong:** In Python, `bool` is a subclass of `int` (`issubclass(bool, int) is True`), allowing `version: true` to be treated as `1`.
+- **Correction:** Corrected to strict type checking: `type(version) is int and not isinstance(version, bool) and version > 0` (ADR-06).
+
+---
+
+### 3.5 Verification Methodology
+Every piece of guidance and code was validated against:
+- **Exact Fixture Execution:** 3 sequential verification runs matching documented counts (`3/1/1/0/4` $\rightarrow$ `0/6/0/0/3` $\rightarrow$ `2/0/0/1/0`).
+- **Byte Invariance:** Automated test verifying that corrupt state files remain 100% byte-identical on disk after a fatal exit 2.
+- **Automated Regression Suite:** 18 passing unit tests in [`tests/app_test.py`](file:///home/regisx001/04-webhook-inbox/tests/app_test.py).
 
 ---
 
@@ -346,5 +389,22 @@ Two standalone, interactive editorial diagrams conforming to the **Diagram Desig
   - **Immediate Key Reservation:** Stores delivery IDs immediately before monotonic evaluation, ensuring version-conflicted deliveries deduplicate on replay.
   - **Tier 2 (Entity Monotonicity Gate):** Evaluates version freshness ($v > curr \rightarrow \text{applied}$, $v < curr \rightarrow \text{stale}$, $v == curr \rightarrow \text{redundant/rejected}$).
   - **ADR-04 Atomic Durability Engine:** Sibling temporary file writes (`.{name}.tmp`) with POSIX `os.replace` inode swapping, guaranteeing zero-byte crash safety and preserving corrupt state bytes.
+
+---
+
+## 6. Academic Technical Paper (LaTeX)
+
+For formal review, a complete academic and technical paper is available in the repository at [`paper/main.tex`](file:///home/regisx001/04-webhook-inbox/paper/main.tex).
+
+- **Title:** *Design and Implementation of an Idempotent, Monotonic Webhook Ingestion Engine with Crash-Safe Local State Durability*
+- **Contents Included:**
+  - Formal mathematical system model and five core operational invariants.
+  - Complete Two-Tier Ingestion Architecture diagram and decision logic truth table.
+  - Full Architectural Decision Records matrix (ADR-01 through ADR-06) with tradeoff analyses.
+  - Verbatim documentation of the initial conceptual human prompt and AI briefing response (`ai_use/01-Explanation.md`).
+  - Core Python implementation listings with strict type guards (`type(v) is int and not isinstance(v, bool)`).
+  - Empirical verification results: 3 fixture replay benchmarks and 18-test automated regression suite table.
+  - Comprehensive row-by-row trace of `inputs/primary.json` (Rows 1–9) with edge-case diagnosis.
+
 
 
